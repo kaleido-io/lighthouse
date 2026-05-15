@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures_util::{future::TryFuture, FutureExt, ready};
+use futures_util::{FutureExt, ready};
 use warp::hyper::server::accept::Accept;
 use warp::hyper::server::conn::{AddrIncoming, AddrStream};
 use warp::hyper::{self, Server};
@@ -224,12 +224,15 @@ pub fn try_bind_tls_with_graceful_shutdown<F>(
 ) -> Result<(SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>), TlsError>
 where
     F: warp::Filter + Clone + Send + Sync + 'static,
-    <F::Future as TryFuture>::Ok: warp::Reply,
-    <F::Future as TryFuture>::Error: warp::reject::IsReject,
+    warp::service::FilteredService<F>: warp::hyper::service::Service<
+            warp::http::Request<warp::hyper::Body>,
+            Response = warp::reply::Response,
+            Error = std::convert::Infallible,
+        >,
 {
     use std::convert::Infallible;
 
-    use warp::hyper::service::{make_service_fn, service_fn};
+    use warp::hyper::service::{make_service_fn, service_fn, Service};
 
     let tls_config = load_server_config(cert_path, key_path)?;
     let inner = warp::service(filter);
@@ -239,7 +242,12 @@ where
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
                 let mut inner = inner.clone();
-                async move { inner.call(req).await }
+                async move {
+                    match inner.call(req).await {
+                        Ok(response) => response,
+                        Err(infallible) => match infallible {},
+                    }
+                }
             }))
         }
     });
