@@ -13,10 +13,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures_util::{FutureExt, ready};
+use futures_util::{ready, Stream, TryStreamExt};
 use warp::hyper::server::accept::Accept;
 use warp::hyper::server::conn::{AddrIncoming, AddrStream};
-use warp::hyper::{self, Server};
+use warp::hyper;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConfig;
 use rustls_pemfile::Item;
@@ -214,7 +214,23 @@ impl Accept for TlsAcceptor {
     }
 }
 
+/// Stream of TLS connections for use with `warp::serve(..).serve_incoming_with_graceful_shutdown`.
+struct IncomingTlsStream {
+    acceptor: TlsAcceptor,
+}
+
+impl Stream for IncomingTlsStream {
+    type Item = Result<TlsStream, io::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.get_mut().acceptor).poll_accept(cx)
+    }
+}
+
 /// Bind a TCP listener and return a future that serves `filter` over TLS until `shutdown`.
+///
+/// Uses warp's public `serve_incoming_with_graceful_shutdown` API so we do not depend on warp's
+/// private `FilteredService` / `IsReject` types or assemble a hyper server by hand.
 pub fn try_bind_tls_with_graceful_shutdown<F>(
     filter: F,
     addr: SocketAddr,
@@ -224,47 +240,20 @@ pub fn try_bind_tls_with_graceful_shutdown<F>(
 ) -> Result<(SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>), TlsError>
 where
     F: warp::Filter + Clone + Send + Sync + 'static,
-    warp::service::FilteredService<F>: warp::hyper::service::Service<
-            warp::http::Request<warp::hyper::Body>,
-            Response = warp::reply::Response,
-            Error = std::convert::Infallible,
-        >,
+    F::Extract: warp::Reply,
 {
-    use std::convert::Infallible;
-
-    use warp::hyper::service::{make_service_fn, service_fn, Service};
-
     let tls_config = load_server_config(cert_path, key_path)?;
-    let inner = warp::service(filter);
 
-    let make_svc = make_service_fn(move |_conn: &TlsStream| {
-        let inner = inner.clone();
-        async move {
-            Ok::<_, Infallible>(service_fn(move |req| {
-                let mut inner = inner.clone();
-                async move {
-                    match inner.call(req).await {
-                        Ok(response) => response,
-                        Err(infallible) => match infallible {},
-                    }
-                }
-            }))
-        }
-    });
-
-    let mut incoming = AddrIncoming::bind(&addr)?;
+    let mut incoming = AddrIncoming::bind(&addr).map_err(TlsError::Bind)?;
     incoming.set_nodelay(true);
     let listen_addr = incoming.local_addr();
-    let acceptor = TlsAcceptor::new(tls_config, incoming);
 
-    let server = Server::builder(acceptor)
-        .serve(make_svc)
-        .with_graceful_shutdown(shutdown)
-        .map(|result| {
-            if let Err(err) = result {
-                tracing::error!(%err, "TLS HTTP server error");
-            }
-        });
+    let incoming_tls = IncomingTlsStream {
+        acceptor: TlsAcceptor::new(tls_config, incoming),
+    }
+    .map_err(|err| -> Box<dyn std::error::Error + Send + Sync> { Box::new(err) });
+
+    let server = warp::serve(filter).serve_incoming_with_graceful_shutdown(incoming_tls, shutdown);
 
     Ok((listen_addr, Box::pin(server)))
 }
