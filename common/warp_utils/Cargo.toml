@@ -8,11 +8,16 @@ edition = { workspace = true }
 [dependencies]
 bytes = { workspace = true }
 eth2 = { workspace = true }
+futures-util = { workspace = true }
 headers = "0.3.2"
 safe_arith = { workspace = true }
 serde = { workspace = true }
 serde_array_query = "0.1.0"
 serde_json = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 warp = { workspace = true }
