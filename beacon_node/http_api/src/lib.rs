@@ -176,6 +176,12 @@ impl From<warp::Error> for Error {
     }
 }
 
+impl From<warp_utils::tls::TlsError> for Error {
+    fn from(e: warp_utils::tls::TlsError) -> Self {
+        Error::Other(e.to_string())
+    }
+}
+
 impl From<String> for Error {
     fn from(e: String) -> Self {
         Error::Other(e)
@@ -3428,13 +3434,16 @@ pub fn serve<T: BeaconChainTypes>(
     let http_socket: SocketAddr = SocketAddr::new(config.listen_addr, config.listen_port);
     let http_server: HttpServer = match config.tls_config {
         Some(tls_config) => {
-            let (socket, server) = warp::serve(routes)
-                .tls()
-                .cert_path(tls_config.cert)
-                .key_path(tls_config.key)
-                .try_bind_with_graceful_shutdown(http_socket, async {
+            let (socket, server) = warp_utils::tls::try_bind_tls_with_graceful_shutdown(
+                routes,
+                http_socket,
+                tls_config.cert,
+                tls_config.key,
+                async {
                     shutdown.await;
-                })?;
+                },
+            )
+            .map_err(Error::from)?;
 
             info!("HTTP API is being served over TLS");
 

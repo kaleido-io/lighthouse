@@ -155,6 +155,7 @@ fnv = "1"
 fork_choice = { path = "consensus/fork_choice" }
 fs2 = "0.4"
 futures = "0.3"
+futures-util = "0.3"
 genesis = { path = "beacon_node/genesis" }
 graffiti_file = { path = "validator_client/graffiti_file" }
 hashlink = "0.9.0"
@@ -207,6 +208,9 @@ rand = "0.9.0"
 rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "native-tls-vendored"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
@@ -259,7 +263,7 @@ validator_metrics = { path = "validator_client/validator_metrics" }
 validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
-warp = { version = "0.3.7", default-features = false, features = ["tls"] }
+warp = { version = "0.3.7", default-features = false }
 warp_utils = { path = "common/warp_utils" }
 workspace_members = { path = "common/workspace_members" }
 xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb584ba93b9d16bb2ae3825a" }
